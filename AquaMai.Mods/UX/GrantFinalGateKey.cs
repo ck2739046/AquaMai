@@ -20,8 +20,8 @@ namespace AquaMai.Mods.UX;
 public class GrantFinalGateKey
 {
     [HarmonyPostfix]
-    [HarmonyPatch(typeof(KaleidxScopeProcess), "OnUpdate")]
-    public static void KaleidxScope_Key_Postfix(KaleidxScopeProcess __instance)
+    [HarmonyPatch("KaleidxScopeProcess", "OnUpdate")]
+    public static void KaleidxScope_Key_Postfix(object __instance)
     {
         if (!UnityEngine.Input.GetKeyDown(KeyCode.Return) && !UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter)) return;
 
@@ -33,14 +33,26 @@ public class GrantFinalGateKey
             {
                 var ud = Singleton<UserDataManager>.Instance.GetUserData(p);
                 if (!ud.IsEntry) continue;
-                var phaseDbg = Singleton<KaleidxScopeManager>.Instance.GetUserKaleidxScopePhase(ud);
+                // 使用反射获取 KaleidxScopeManager 实例和调用 GetUserKaleidxScopePhase
+                var managerType = AccessTools.TypeByName("Manager.KaleidxScopeManager") ?? AccessTools.TypeByName("KaleidxScopeManager");
+                if (managerType == null) continue;
+                var singletonType = typeof(Singleton<>).MakeGenericType(managerType);
+                var instanceProperty = AccessTools.Property(singletonType, "Instance");
+                if (instanceProperty == null) continue;
+                var instance = instanceProperty.GetValue(null);
+                if (instance == null) continue;
+                var method = AccessTools.Method(managerType, "GetUserKaleidxScopePhase");
+                if (method == null) continue;
+                var phaseDbg = method.Invoke(instance, new object[] { ud });
                 if ((int)phaseDbg != 5) continue; // KaleidxScopeManager.KaleidxScopePhase.ClearHopeGate
                 isEntryArray[p] = true;
             }
             if (!isEntryArray[0] && !isEntryArray[1]) return; // 没有符合条件的玩家，跳过
 
             // 反射拿到内部 stateMachine（基于运行时类型）
-            var stateMachineField = typeof(KaleidxScopeProcess).GetField("stateMachine", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var kaleidxScopeProcessType = AccessTools.TypeByName("KaleidxScopeProcess") ?? __instance?.GetType();
+            if (kaleidxScopeProcessType == null) return;
+            var stateMachineField = kaleidxScopeProcessType.GetField("stateMachine", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             if (stateMachineField == null)
             {
                 MelonLogger.Msg("[GrantFinalGateKey] stateMachine field not found.");
@@ -85,8 +97,10 @@ public class GrantFinalGateKey
                 }
                 if (monitorEntry) continue; // 已经entry了，不需要刷钥匙
 
-                var keyData = userData.GetUserKaleidxScopeData(10);
-                bool hasKey = keyData != null && keyData.isKeyFound;
+                // 使用反射调用 GetUserKaleidxScopeData 方法
+                var getKaleidxScopeDataMethod = AccessTools.Method(userData.GetType(), "GetUserKaleidxScopeData");
+                var keyData = getKaleidxScopeDataMethod?.Invoke(userData, new object[] { 10 });
+                bool hasKey = keyData != null && (bool)AccessTools.Field(keyData.GetType(), "isKeyFound")?.GetValue(keyData);
                 if (hasKey) continue; // 已经有钥匙了，不需要刷钥匙
 
                 // 尝试触发开门（使用运行时类型）
@@ -176,7 +190,7 @@ public class GrantFinalGateKey
     
     // 重置开门状态
     [HarmonyPrefix]
-    [HarmonyPatch(typeof(KaleidxScopeProcess), "OnStart")]
+    [HarmonyPatch("KaleidxScopeProcess", "OnStart")]
     public static void KaleidxScope_OnStart_Prefix()
     {
         playerHasOpened[0] = false;

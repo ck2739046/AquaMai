@@ -231,7 +231,49 @@ public static class Shim
 
     public static readonly Action<bool> Set_GameManager_IsNormalMode = GameInfo.GameVersion < 25500 ? (_) => { } : (value) => { GameManager.IsNormalMode = value; };
     private static readonly Func<bool> IsKaleidxScopeModeGetter = GameInfo.GameVersion < 25000 ? () => false : () => GameManager.IsKaleidxScopeMode;
-    private static readonly Func<int> GetKaleidxScopeGateId = GameInfo.GameVersion is >= 25000 and < 26500 ? () => Singleton<KaleidxScopeManager>.Instance.gateId : () => 0;
+    private static readonly Func<int> GetKaleidxScopeGateId = GameInfo.GameVersion is >= 25000 and < 26500 ? BuildKaleidxScopeGateIdGetter() : () => 0;
     public static int KaleidxScopeGateId => GetKaleidxScopeGateId();
     public static bool IsKaleidxScopeMode => IsKaleidxScopeModeGetter();
+
+    private static Func<int> BuildKaleidxScopeGateIdGetter()
+    {
+        var managerType = AccessTools.TypeByName("Manager.KaleidxScopeManager") ?? AccessTools.TypeByName("KaleidxScopeManager");
+        if (managerType == null)
+        {
+            MelonLogger.Warning("No matching KaleidxScopeManager type found");
+            return () => 0;
+        }
+
+        var singletonType = typeof(Singleton<>).MakeGenericType(managerType);
+        var instanceProperty = AccessTools.Property(singletonType, "Instance");
+        if (instanceProperty == null)
+        {
+            MelonLogger.Warning("No matching Singleton<KaleidxScopeManager>.Instance property found");
+            return () => 0;
+        }
+
+        var gateField = AccessTools.Field(managerType, "gateId");
+        var gateProperty = gateField == null ? (AccessTools.Property(managerType, "gateId") ?? AccessTools.Property(managerType, "GateId")) : null;
+        if (gateField == null && gateProperty == null)
+        {
+            MelonLogger.Warning("No matching KaleidxScopeManager gateId field/property found");
+            return () => 0;
+        }
+
+        return () =>
+        {
+            var instance = instanceProperty.GetValue(null);
+            if (instance == null)
+            {
+                return 0;
+            }
+
+            if (gateField != null)
+            {
+                return (int)gateField.GetValue(instance);
+            }
+
+            return (int)gateProperty.GetValue(instance);
+        };
+    }
 }
